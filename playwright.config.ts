@@ -20,6 +20,8 @@ export default defineConfig({
       VITE_API_TARGET: "http://127.0.0.1:3101",
       APP_ORIGIN: "http://127.0.0.1:5174",
       DATABASE_PATH: "./work/e2e.sqlite",
+      AI_MODE: "demo",
+      AUTH_MODE: "development",
     },
   },
   reporter: "list",

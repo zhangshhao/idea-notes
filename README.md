@@ -6,6 +6,8 @@
 
 > 当前是开发与内测基础，不是已完成商业验收的产品。默认使用明确标识的本地验证码和演示 AI；微信支付代码已接入，但尚无商户账号和真实配置，购买入口保持关闭。开通步骤见 [微信支付指南](docs/wechat-pay.md)。商业版差距见 [实现范围](docs/implementation.md)。
 
+已部署到 <https://zzhao.cc.cd/idea-notes/>，线上采用账号密码登录。运维与部署配置见 [服务器部署说明](docs/deployment.md)。
+
 ## 快速启动
 
 需要 **Node.js 24+**（当前使用内置 `node:sqlite`，运行时会显示实验性 API 提示）。
@@ -53,6 +55,10 @@ npm start
 
 复制 `.env.example` 后按需要配置，所有密钥仅由 API 进程读取。
 
+### 账号密码
+
+设置 `AUTH_MODE=password`，支持账号注册、登录、修改密码与密码确认注销。密码至少 12 个字符，使用随机盐 scrypt 哈希；登录有账号/IP 限流。`ADMIN_EMAILS` 在此模式下填写管理员账号名，需通过 `scripts/create-account.ts` 从标准输入初始化，不能通过公开注册抢占。当前没有邮箱找回密码。
+
 ### 真实邮件
 
 设置 `AUTH_MODE=smtp` 和 `SMTP_HOST/PORT/SECURE/USER/PASS/FROM`。验证码有效 10 分钟、同邮箱发送间隔至少 60 秒、每小时最多 5 次、连续验证错误 5 次失效。
@@ -75,7 +81,7 @@ npm start
 
 ### 生产配置保护
 
-`NODE_ENV=production` 强制要求 SMTP 登录及 HTTPS `APP_ORIGIN`。这只是最低启动保护，不代表已经具备商业上线条件。微信真实商户联调、管理员强认证、每日支付账单对账、数据库/备份加密、监控与恢复演练等仍须补齐。部署细节与风险见 [实现范围](docs/implementation.md)。
+`NODE_ENV=production` 强制要求账号密码或 SMTP 登录及 HTTPS `APP_ORIGIN`。这只是最低启动保护，不代表已经具备商业上线条件。微信真实商户联调、管理员强认证、每日支付账单对账、数据库/备份加密、监控与恢复演练等仍须补齐。部署细节与风险见 [实现范围](docs/implementation.md)。
 
 ## 检查与测试
 
@@ -110,4 +116,4 @@ docs/requirements.md  用户提供的原始需求副本
 docs/implementation.md 当前交付边界、技术取舍和后续工作
 ```
 
-数据库当前迁移版本为 2，使用 `schema_migrations` 记录。后续修改结构应追加迁移，不直接删除用户的数据库。`.env`、数据库、测试输出与依赖目录均已加入 `.gitignore`。
+数据库当前迁移版本为 3，使用 `schema_migrations` 记录。后续修改结构应追加迁移，不直接删除用户的数据库。`.env`、数据库、测试输出与依赖目录均已加入 `.gitignore`。

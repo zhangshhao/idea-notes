@@ -14,7 +14,7 @@ export async function api<T = any>(
   body?: unknown,
   method?: string,
 ): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${import.meta.env.BASE_URL}api${path}`, {
     method: method || (body ? "POST" : "GET"),
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", "X-Idea-Client": "1" },

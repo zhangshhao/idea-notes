@@ -1524,7 +1524,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
             disabled={!online}
             onClick={async () => {
               if (!(await save())) return;
-              location.href = `/api/ideas/${draft.id}/export?chat=${includeChat}`;
+              location.href = `${import.meta.env.BASE_URL}api/ideas/${draft.id}/export?chat=${includeChat}`;
               setExportOpen(false);
             }}
           >

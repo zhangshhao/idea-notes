@@ -6,11 +6,15 @@ import { createApp } from "./app";
 import { wechatFromEnv } from "./payments/wechat";
 import { plansFromEnv } from "./payments/billing";
 const env = process.env;
+const basePath = env.APP_BASE_PATH || "/";
+if (!/^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(basePath))
+  throw new Error("Invalid APP_BASE_PATH");
 const wechat = wechatFromEnv(env);
 const { app } = createApp({
   database: env.DATABASE_PATH || "./data/ideas.sqlite",
   production: env.NODE_ENV === "production",
   origin: env.APP_ORIGIN || "http://localhost:5173",
+  cookiePath: basePath,
   authMode: env.AUTH_MODE || "development",
   adminEmails: (env.ADMIN_EMAILS || "admin@example.com")
     .split(",")
@@ -27,6 +31,7 @@ const { app } = createApp({
     supportEmail: env.PAYMENT_SUPPORT_EMAIL,
     refundPolicyUrl: env.PAYMENT_REFUND_POLICY_URL,
     publicOrigin: env.APP_ORIGIN,
+    publicBasePath: basePath,
   },
   ai: {
     mode: env.AI_MODE || "demo",

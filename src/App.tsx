@@ -178,7 +178,7 @@ export default function App() {
     window.addEventListener("beforeinstallprompt", installer);
     if (import.meta.env.PROD && "serviceWorker" in navigator) {
       navigator.serviceWorker
-        .register("/sw.js")
+        .register(`${import.meta.env.BASE_URL}sw.js`)
         .then((reg) => {
           if (reg.waiting) setSw(reg.waiting);
           reg.addEventListener("updatefound", () => {
@@ -623,6 +623,7 @@ export default function App() {
           />
         ) : section === "settings" ? (
           <SettingsPage
+            authMode={config.authMode}
             user={user}
             online={online}
             onLogin={() => setAuthOpen(true)}
@@ -1021,6 +1022,7 @@ export default function App() {
       )}
       {authOpen && (
         <Auth
+          authMode={config.authMode}
           onClose={() => setAuthOpen(false)}
           onSuccess={async () => {
             await refreshSession();

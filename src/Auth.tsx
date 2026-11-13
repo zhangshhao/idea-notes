@@ -2,7 +2,19 @@ import { useState } from "react";
 import { ArrowRight, Mail, ShieldCheck } from "lucide-react";
 import { api, errorText } from "./lib";
 import { Modal, Spinner } from "./ui";
-export function Auth({
+import { PasswordAuth } from "./PasswordAuth";
+export function Auth(props: {
+  authMode?: string;
+  onClose: () => void;
+  onSuccess: () => Promise<void>;
+}) {
+  return props.authMode === "password" ? (
+    <PasswordAuth {...props} />
+  ) : (
+    <EmailAuth {...props} />
+  );
+}
+function EmailAuth({
   onClose,
   onSuccess,
 }: {
@@ -109,11 +121,19 @@ export function Auth({
           />
           <span>
             我已阅读并同意
-            <a href="/legal.html#terms" target="_blank" rel="noreferrer">
+            <a
+              href={`${import.meta.env.BASE_URL}legal.html#terms`}
+              target="_blank"
+              rel="noreferrer"
+            >
               服务条款
             </a>
             与
-            <a href="/legal.html#privacy" target="_blank" rel="noreferrer">
+            <a
+              href={`${import.meta.env.BASE_URL}legal.html#privacy`}
+              target="_blank"
+              rel="noreferrer"
+            >
               隐私说明
             </a>
           </span>

@@ -1,0 +1,23 @@
+[Unit]
+Description=Idea Notes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=idea-notes
+Group=idea-notes
+WorkingDirectory=/opt/idea-notes/current
+EnvironmentFile=/etc/idea-notes/app.env
+ExecStart=/opt/idea-notes/runtime/bin/node --import tsx server/index.ts
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/idea-notes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,6 @@
 // Only public application assets belong in this cache; API responses are never cached.
+const BASE = new URL(self.registration.scope).pathname;
+const CACHE_PREFIX = `idea-shell-${BASE}-`;
 const CACHE = "idea-shell-v1";
 const PRECACHE = [
   "/",
@@ -17,7 +19,7 @@ self.addEventListener("activate", (event) =>
       .then((keys) =>
         Promise.all(
           keys
-            .filter((k) => k.startsWith("idea-shell-") && k !== CACHE)
+            .filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE)
             .map((k) => caches.delete(k)),
         ),
       )
@@ -32,29 +34,27 @@ self.addEventListener("fetch", (event) => {
   if (
     event.request.method !== "GET" ||
     url.origin !== self.location.origin ||
-    url.pathname.startsWith("/api/")
+    !url.pathname.startsWith(BASE) ||
+    url.pathname.startsWith(`${BASE}api/`)
   )
     return;
-  if (event.request.mode === "navigate") {
+  if (event.request.mode === "navigate" && url.pathname === BASE) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
-            caches.open(CACHE).then((c) => c.put("/", copy));
+            caches.open(CACHE).then((c) => c.put(BASE, copy));
           }
           return response;
         })
-        .catch(() => caches.match("/")),
+        .catch(() => caches.match(BASE)),
     );
   } else if (
-    url.pathname.startsWith("/assets/") ||
-    [
-      "/icon.svg",
-      "/icon-192.png",
-      "/icon-512.png",
-      "/manifest.webmanifest",
-    ].includes(url.pathname)
+    url.pathname.startsWith(`${BASE}assets/`) ||
+    ["/icon.svg", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"]
+      .map((path) => BASE + path.slice(1))
+      .includes(url.pathname)
   ) {
     event.respondWith(
       caches.match(event.request).then(

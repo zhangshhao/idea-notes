@@ -13,6 +13,7 @@ import { api, errorText, fullDate, storage, download } from "./lib";
 import { Empty, Modal, Spinner } from "./ui";
 import type { Config, Quota, User } from "./types";
 import { Payments, PaymentAdmin, planName } from "./Billing";
+import { PasswordSettings } from "./PasswordAuth";
 export function Subscription({
   user,
   config,
@@ -222,6 +223,7 @@ export function Subscription({
   );
 }
 export function SettingsPage({
+  authMode,
   user,
   online,
   onLogin,
@@ -229,6 +231,7 @@ export function SettingsPage({
   notify,
   onDeleted,
 }: {
+  authMode?: string;
   user: User | null;
   online: boolean;
   onLogin: () => void;
@@ -380,7 +383,7 @@ export function SettingsPage({
           </div>
           <a
             className="text-btn"
-            href="/legal.html"
+            href={`${import.meta.env.BASE_URL}legal.html`}
             target="_blank"
             rel="noreferrer"
           >
@@ -388,12 +391,18 @@ export function SettingsPage({
           </a>
         </div>
       </section>
+      {user && online && authMode === "password" && (
+        <PasswordSettings notify={notify} />
+      )}
       <section className="settings-card danger-zone">
         <h2>账号注销</h2>
         <div className="setting-row">
           <div>
             <strong>删除账号与个人内容</strong>
-            <p>需要重新验证邮箱；删除后无法恢复。建议先导出数据。</p>
+            <p>
+              需要重新验证{authMode === "password" ? "密码" : "邮箱"}
+              ；删除后无法恢复。建议先导出数据。
+            </p>
           </div>
           <button
             className="btn danger-outline"
@@ -427,7 +436,7 @@ export function SettingsPage({
           <button
             className="btn primary full"
             onClick={() => {
-              location.href = `/api/export?chat=${chat}&trash=${trash}`;
+              location.href = `${import.meta.env.BASE_URL}api/export?chat=${chat}&trash=${trash}`;
               setExportOpen(false);
             }}
           >
@@ -443,45 +452,65 @@ export function SettingsPage({
           </p>
           <div className="form-stack">
             <label>
-              重新验证邮箱
+              {authMode === "password" ? "确认账号密码" : "重新验证邮箱"}
               <div className="inline">
                 <input
-                  aria-label="注销验证码"
+                  aria-label={
+                    authMode === "password" ? "注销密码" : "注销验证码"
+                  }
+                  type={authMode === "password" ? "password" : "text"}
+                  autoComplete={
+                    authMode === "password"
+                      ? "current-password"
+                      : "one-time-code"
+                  }
                   value={code}
-                  placeholder="6 位验证码"
+                  placeholder={
+                    authMode === "password" ? "输入当前密码" : "6 位验证码"
+                  }
                   onChange={(e) => setCode(e.target.value)}
                 />
-                <button
-                  className="btn secondary"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    setError("");
-                    try {
-                      const r = await api("/auth/code", { email: user?.email });
-                      setDevCode(r.developmentCode || "");
-                      notify("验证码已生成或发送");
-                    } catch (e) {
-                      setError(errorText(e));
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  获取验证码
-                </button>
+                {authMode !== "password" && (
+                  <button
+                    className="btn secondary"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError("");
+                      try {
+                        const r = await api("/auth/code", {
+                          email: user?.email,
+                        });
+                        setDevCode(r.developmentCode || "");
+                        notify("验证码已生成或发送");
+                      } catch (e) {
+                        setError(errorText(e));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    获取验证码
+                  </button>
+                )}
               </div>
             </label>
             {devCode && <p className="notice">开发验证码：{devCode}</p>}
             {error && <p className="error">{error}</p>}
             <button
               className="btn danger full"
-              disabled={busy || code.length !== 6}
+              disabled={
+                busy ||
+                (authMode === "password" ? code.length < 12 : code.length !== 6)
+              }
               onClick={async () => {
                 setBusy(true);
                 setError("");
                 try {
-                  await api("/account/delete", { code });
+                  await api(
+                    "/account/delete",
+                    authMode === "password" ? { password: code } : { code },
+                  );
                   await onDeleted();
                   notify("账号及个人内容已删除");
                 } catch (e) {

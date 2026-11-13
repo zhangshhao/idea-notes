@@ -38,6 +38,7 @@ export type User = {
   admin: boolean;
 };
 export type Config = {
+  authMode?: string;
   development: boolean;
   aiDemo: boolean;
   provider: string;

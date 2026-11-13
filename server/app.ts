@@ -31,6 +31,12 @@ import {
   type IdeaData,
 } from "./domain";
 import { createRunner, systemPrompt, type AIConfig } from "./ai";
+import {
+  accountSchema,
+  passwordSchema,
+  hashPassword,
+  verifyPassword,
+} from "./password";
 import { createBilling, type BillingConfig } from "./payments/billing";
 
 export interface Config {
@@ -51,12 +57,17 @@ export interface Config {
   dailyLimit?: number;
   billing?: BillingConfig;
   trustProxy?: string[];
+  cookiePath?: string;
 }
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
 const validID = z.string().uuid();
 export function createApp(config: Config) {
-  if (config.production && config.authMode !== "smtp")
-    throw new Error("Production requires SMTP authentication.");
+  if (!["development", "smtp", "password"].includes(config.authMode))
+    throw new Error("Unknown authentication mode.");
+  if (config.production && !["smtp", "password"].includes(config.authMode))
+    throw new Error(
+      "Production requires SMTP authentication or password authentication.",
+    );
   if (config.production && !config.origin.startsWith("https://"))
     throw new Error("Production requires an HTTPS APP_ORIGIN.");
   if (
@@ -71,11 +82,11 @@ export function createApp(config: Config) {
   const db = openDatabase(config.database);
   if (
     config.billing?.enabled &&
-    (config.authMode !== "smtp" ||
+    (!["smtp", "password"].includes(config.authMode) ||
       config.ai.mode === "demo" ||
       !config.production)
   )
-    throw new Error("启用真实收款前需要生产模式、SMTP 登录和真实 AI 服务。");
+    throw new Error("启用真实收款前需要生产模式、安全登录和真实 AI 服务。");
   const billing = createBilling(db, config.billing);
   const runner = createRunner(db, config.ai);
   runner.recover();
@@ -175,6 +186,7 @@ export function createApp(config: Config) {
       );
   }
   const configPublic = () => ({
+    authMode: config.authMode,
     development: config.authMode === "development",
     aiDemo: config.ai.mode === "demo",
     provider:
@@ -204,6 +216,12 @@ export function createApp(config: Config) {
     }),
   );
   app.post("/api/auth/code", async (req, res) => {
+    assert(
+      config.authMode !== "password",
+      404,
+      "DISABLED",
+      "当前使用账号密码登录",
+    );
     const { email: raw } = z
       .object({ email: z.email().max(254) })
       .parse(req.body);
@@ -255,6 +273,12 @@ export function createApp(config: Config) {
     });
   });
   app.post("/api/auth/login", (req, res) => {
+    assert(
+      config.authMode !== "password",
+      404,
+      "DISABLED",
+      "当前使用账号密码登录",
+    );
     const data = z
       .object({
         email: z.email(),
@@ -300,18 +324,138 @@ export function createApp(config: Config) {
     res
       .cookie("idea_session", token, {
         httpOnly: true,
-        secure: config.production,
+        secure: config.production || config.origin.startsWith("https://"),
         sameSite: "strict",
         maxAge: 30 * 86400000,
-        path: "/",
+        path: config.cookiePath || "/",
       })
       .json({ ok: true });
+  });
+  const credential = (id: string) =>
+    row(
+      db,
+      "SELECT password_hash FROM password_credentials WHERE user_id=?",
+      id,
+    )?.password_hash as string | undefined;
+  function passwordSession(res: Response, id: string) {
+    const token = randomBytes(32).toString("hex");
+    db.prepare("INSERT INTO sessions VALUES(?,?,?)").run(
+      hash(token),
+      id,
+      Date.now() + 30 * 86400000,
+    );
+    res
+      .cookie("idea_session", token, {
+        httpOnly: true,
+        secure: config.production || config.origin.startsWith("https://"),
+        sameSite: "strict",
+        maxAge: 30 * 86400000,
+        path: config.cookiePath || "/",
+      })
+      .json({ ok: true });
+  }
+  for (const action of ["register", "login"] as const)
+    app.post(`/api/auth/password/${action}`, async (req, res) => {
+      assert(
+        config.authMode === "password",
+        404,
+        "DISABLED",
+        "当前未启用密码登录",
+      );
+      const input = z
+        .object({
+          account: accountSchema,
+          password: passwordSchema,
+          accepted: z.literal(true),
+        })
+        .parse(req.body);
+      rate(`password-ip:${req.ip}`, 40, 15 * 60000);
+      rate(`password-account:${input.account}`, 15, 15 * 60000);
+      if (action === "register") {
+        rate(`register-ip:${req.ip}`, 5, 3600000);
+        assert(
+          !config.adminEmails.includes(input.account) &&
+            !row(db, "SELECT id FROM users WHERE email=?", input.account),
+          409,
+          "ACCOUNT_EXISTS",
+          "账号不可用，请更换或登录",
+        );
+        const encoded = await hashPassword(input.password);
+        const id = uid();
+        transaction(db, () => {
+          assert(
+            !row(db, "SELECT id FROM users WHERE email=?", input.account),
+            409,
+            "ACCOUNT_EXISTS",
+            "账号不可用，请更换或登录",
+          );
+          db.prepare("INSERT INTO users VALUES(?,?,?,?,NULL)").run(
+            id,
+            input.account,
+            now(),
+            "2026-11-draft",
+          );
+          db.prepare("INSERT INTO password_credentials VALUES(?,?,?)").run(
+            id,
+            encoded,
+            now(),
+          );
+        });
+        passwordSession(res, id);
+      } else {
+        const u = row(db, "SELECT id FROM users WHERE email=?", input.account);
+        const encoded = u ? credential(u.id) : undefined;
+        const valid = await verifyPassword(input.password, encoded);
+        assert(
+          valid && u && credential(u.id) === encoded,
+          401,
+          "INVALID_CREDENTIALS",
+          "账号或密码错误",
+        );
+        passwordSession(res, u.id);
+      }
+    });
+  app.post("/api/auth/password/change", auth, async (req, res) => {
+    assert(
+      config.authMode === "password",
+      404,
+      "DISABLED",
+      "当前未启用密码登录",
+    );
+    const input = z
+      .object({ currentPassword: passwordSchema, newPassword: passwordSchema })
+      .parse(req.body);
+    const id = user(res);
+    rate(`password-change:${id}`, 5, 15 * 60000);
+    const before = credential(id);
+    assert(
+      await verifyPassword(input.currentPassword, before),
+      401,
+      "INVALID_CREDENTIALS",
+      "当前密码错误",
+    );
+    const encoded = await hashPassword(input.newPassword);
+    transaction(db, () => {
+      assert(
+        credential(id) === before,
+        409,
+        "CREDENTIAL_CHANGED",
+        "密码已变更，请重新登录",
+      );
+      db.prepare(
+        "UPDATE password_credentials SET password_hash=?,updated_at=? WHERE user_id=?",
+      ).run(encoded, now(), id);
+      db.prepare("DELETE FROM sessions WHERE user_id=?").run(id);
+    });
+    passwordSession(res, id);
   });
   app.post("/api/auth/logout", auth, (req, res) => {
     db.prepare("DELETE FROM sessions WHERE token=?").run(
       hash(req.cookies.idea_session),
     );
-    res.clearCookie("idea_session", { path: "/" }).json({ ok: true });
+    res
+      .clearCookie("idea_session", { path: config.cookiePath || "/" })
+      .json({ ok: true });
   });
   app.post("/api/auth/ai-consent", auth, (_req, res) => {
     db.prepare("UPDATE users SET ai_consent=? WHERE id=?").run(
@@ -1065,11 +1209,7 @@ export function createApp(config: Config) {
       await billing.refund(String(req.params.id), user(res), input.reason),
     );
   });
-  app.post("/api/account/delete", auth, (req, res) => {
-    const code = z
-      .string()
-      .regex(/^\d{6}$/)
-      .parse(req.body.code);
+  app.post("/api/account/delete", auth, async (req, res) => {
     const u = res.locals.user;
     assert(
       !row(db, "SELECT id FROM payment_orders WHERE user_id=? LIMIT 1", u.id),
@@ -1077,25 +1217,41 @@ export function createApp(config: Config) {
       "PAYMENT_HISTORY",
       "此账号存在支付订单，请先通过订单支持入口处理服务期、退款与交易记录保留，再办理注销。",
     );
-    const c = row(db, "SELECT * FROM codes WHERE email=?", u.email);
-    assert(
-      c && c.expires > Date.now() && c.attempts < 5,
-      400,
-      "INVALID_CODE",
-      "请重新获取验证码",
-    );
-    db.prepare("UPDATE codes SET attempts=attempts+1 WHERE email=?").run(
-      u.email,
-    );
-    assert(
-      timingSafeEqual(
-        Buffer.from(c.hash),
-        Buffer.from(hash(`${u.email}:${code}`)),
-      ),
-      400,
-      "INVALID_CODE",
-      "验证码无效",
-    );
+    if (config.authMode === "password") {
+      const password = passwordSchema.parse(req.body.password);
+      rate(`password-delete:${u.id}`, 5, 15 * 60000);
+      const before = credential(u.id);
+      assert(
+        (await verifyPassword(password, before)) && credential(u.id) === before,
+        401,
+        "INVALID_CREDENTIALS",
+        "密码错误，请重新确认",
+      );
+    } else {
+      const code = z
+        .string()
+        .regex(/^\d{6}$/)
+        .parse(req.body.code);
+      const c = row(db, "SELECT * FROM codes WHERE email=?", u.email);
+      assert(
+        c && c.expires > Date.now() && c.attempts < 5,
+        400,
+        "INVALID_CODE",
+        "请重新获取验证码",
+      );
+      db.prepare("UPDATE codes SET attempts=attempts+1 WHERE email=?").run(
+        u.email,
+      );
+      assert(
+        timingSafeEqual(
+          Buffer.from(c.hash),
+          Buffer.from(hash(`${u.email}:${code}`)),
+        ),
+        400,
+        "INVALID_CODE",
+        "验证码无效",
+      );
+    }
     assert(
       !row(
         db,
@@ -1112,7 +1268,9 @@ export function createApp(config: Config) {
       db.prepare("DELETE FROM requests WHERE user_id=?").run(u.id);
       db.prepare("DELETE FROM users WHERE id=?").run(u.id);
     });
-    res.clearCookie("idea_session", { path: "/" }).json({ ok: true });
+    res
+      .clearCookie("idea_session", { path: config.cookiePath || "/" })
+      .json({ ok: true });
   });
   app.get("/api/admin", admin, (_req, res) => {
     audit(user(res), "admin.overview", {});

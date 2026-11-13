@@ -30,6 +30,7 @@ export interface BillingConfig {
   supportEmail?: string;
   refundPolicyUrl?: string;
   publicOrigin?: string;
+  publicBasePath?: string;
   allowRefunds?: boolean;
   clock?: () => Date;
 }
@@ -146,7 +147,7 @@ export function createBilling(db: DB, config: BillingConfig = {}) {
       const url = new URL(paymentUrl);
       url.searchParams.set(
         "redirect_url",
-        `${config.publicOrigin}/?payment_order=${order.id}`,
+        `${config.publicOrigin}${config.publicBasePath || "/"}?payment_order=${order.id}`,
       );
       paymentUrl = url.href;
     }

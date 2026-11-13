@@ -47,6 +47,10 @@ export function openDatabase(path: string) {
  CREATE TABLE IF NOT EXISTS payment_events(id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES payment_orders(id), kind TEXT NOT NULL, body_hash TEXT NOT NULL, created_at TEXT NOT NULL);
  INSERT OR IGNORE INTO schema_migrations VALUES(2,CURRENT_TIMESTAMP);
  COMMIT;`);
+  db.exec(`BEGIN IMMEDIATE;
+ CREATE TABLE IF NOT EXISTS password_credentials(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, password_hash TEXT NOT NULL, updated_at TEXT NOT NULL);
+ INSERT OR IGNORE INTO schema_migrations VALUES(3,CURRENT_TIMESTAMP);
+ COMMIT;`);
   return db;
 }
 export type DB = ReturnType<typeof openDatabase>;
